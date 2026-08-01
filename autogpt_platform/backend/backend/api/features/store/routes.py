@@ -514,6 +514,32 @@ async def upload_submission_media(
     return media_url
 
 
+@router.get(
+    "/media/users/{user_id}/{media_type}/{filename}",
+    summary="Serve locally stored submission media",
+    tags=["store", "public"],
+)
+async def get_local_submission_media(
+    user_id: str, media_type: str, filename: str
+) -> fastapi.responses.FileResponse:
+    """
+    Serve marketplace submission media stored on local disk.
+
+    Only used for self-hosted deployments that have no GCS bucket configured
+    (`upload_media` falls back to local storage in that case); GCS-backed
+    deployments serve media directly from the public bucket URL instead.
+    """
+    try:
+        path = store_media.local_media_path(user_id, media_type, filename)
+    except ValueError as e:
+        raise NotFoundError("Media not found") from e
+
+    if not path.is_file():
+        raise NotFoundError("Media not found")
+
+    return fastapi.responses.FileResponse(path)
+
+
 class ImageURLResponse(BaseModel):
     image_url: str
 

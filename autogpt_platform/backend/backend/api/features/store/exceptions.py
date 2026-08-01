@@ -25,12 +25,6 @@ class FileReadError(MediaUploadError):
     pass
 
 
-class StorageConfigError(MediaUploadError):
-    """Raised when storage configuration is invalid"""
-
-    pass
-
-
 class StorageUploadError(MediaUploadError):
     """Raised when upload to storage fails"""
 

@@ -77,20 +77,59 @@ async def test_upload_media_invalid_type(mock_settings, mock_storage_client):
     mock_storage_client.upload.assert_not_called()
 
 
-async def test_upload_media_missing_credentials(monkeypatch):
+@pytest.fixture
+def mock_local_settings(monkeypatch, tmp_path):
     settings = Settings()
     settings.config.media_gcs_bucket_name = ""
     settings.config.google_application_credentials = ""
+    settings.config.platform_base_url = "http://localhost:8000"
     monkeypatch.setattr("backend.api.features.store.media.Settings", lambda: settings)
+    monkeypatch.setattr(
+        "backend.api.features.store.media.get_data_path", lambda: tmp_path
+    )
+    monkeypatch.setattr(
+        "backend.api.features.store.media.scan_content_safe", AsyncMock()
+    )
+    return settings
 
+
+async def test_upload_media_local_fallback_without_gcs_bucket(
+    mock_local_settings, tmp_path
+):
+    """When no GCS bucket is configured (e.g. self-hosted deployments), uploads
+    must be stored on local disk instead of failing."""
     test_file = fastapi.UploadFile(
         filename="laptop.jpeg",
         file=io.BytesIO(b"\xff\xd8\xff" + b"test data"),  # Valid JPEG signature
         headers=starlette.datastructures.Headers({"content-type": "image/jpeg"}),
     )
 
-    with pytest.raises(store_exceptions.StorageConfigError):
-        await store_media.upload_media("test-user", test_file)
+    result = await store_media.upload_media("test-user", test_file)
+
+    assert result.startswith(
+        "http://localhost:8000/api/store/media/users/test-user/images/"
+    )
+    assert result.endswith(".jpeg")
+
+    stored_files = list(
+        (tmp_path / "media" / "users" / "test-user" / "images").iterdir()
+    )
+    assert len(stored_files) == 1
+    assert stored_files[0].read_bytes() == b"\xff\xd8\xff" + b"test data"
+
+
+async def test_check_media_exists_local_fallback(mock_local_settings, tmp_path):
+    assert await store_media.check_media_exists("test-user", "missing.jpeg") is None
+
+    image_dir = tmp_path / "media" / "users" / "test-user" / "images"
+    image_dir.mkdir(parents=True)
+    (image_dir / "laptop.jpeg").write_bytes(b"fake image bytes")
+
+    result = await store_media.check_media_exists("test-user", "laptop.jpeg")
+    assert (
+        result
+        == "http://localhost:8000/api/store/media/users/test-user/images/laptop.jpeg"
+    )
 
 
 async def test_upload_media_video_type(mock_settings, mock_storage_client):
