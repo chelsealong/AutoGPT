@@ -26,7 +26,7 @@ export const OutputHandler = ({
   nodeId: string;
   uiType: BlockUIType;
 }) => {
-  const { isOutputConnected } = useEdgeStore();
+  const isOutputConnected = useEdgeStore((state) => state.isOutputConnected);
   const properties = outputSchema?.properties || {};
   const [isOutputVisible, setIsOutputVisible] = useState(true);
   const brokenOutputs = useBrokenOutputs(nodeId);
