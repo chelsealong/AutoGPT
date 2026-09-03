@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { keepPreviousData } from "@tanstack/react-query";
 import { useGetV2GetSpecificBlocks } from "@/app/api/__generated__/endpoints/default/default";
 import {
   useGetV1GetExecutionDetails,
@@ -90,6 +91,10 @@ export const useFlow = () => {
       query: {
         select: (res) => res.data as GraphModel,
         enabled: !!flowID,
+        // Syncing flowVersion into the URL (below) switches this query to a
+        // new key (`{ version }` instead of `{}`), which would otherwise
+        // re-show the loading spinner for a graph that's already rendered.
+        placeholderData: keepPreviousData,
       },
     },
   );

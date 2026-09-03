@@ -1,6 +1,7 @@
 import { useGetV1GetSpecificGraph } from "@/app/api/__generated__/endpoints/graphs/graphs";
 import { GraphModel } from "@/app/api/__generated__/models/graphModel";
 import { useAuth } from "@/lib/auth/hooks/useAuth";
+import { keepPreviousData } from "@tanstack/react-query";
 import { parseAsInteger, parseAsString, useQueryStates } from "nuqs";
 
 // Read-only detection is a UX affordance only — the backend is the security
@@ -24,6 +25,10 @@ export function useIsReadOnlyGraph() {
       query: {
         select: (res) => res.data as GraphModel,
         enabled: !!flowID,
+        // Same query key as useFlow, so keep the previous graph around
+        // across the `{}` -> `{ version }` key switch instead of briefly
+        // losing `graph` (and failing open to editable) while it re-fetches.
+        placeholderData: keepPreviousData,
       },
     },
   );
