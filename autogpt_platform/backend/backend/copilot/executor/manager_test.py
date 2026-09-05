@@ -7,6 +7,7 @@ pin its retry/give-up contract.
 """
 
 import threading
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -77,18 +78,41 @@ def test_dispatch_preserves_codex_transport_for_engine_switch(
 
 
 def test_dispatch_retries_until_success():
+    fake_time = SimpleNamespace(sleep=MagicMock())
     with (
         patch(
             "backend.copilot.executor.manager.schedule_turn",
             new_callable=AsyncMock,
             side_effect=[RuntimeError("rmq down"), RuntimeError("rmq down"), None],
         ) as mock_schedule,
-        patch("backend.copilot.executor.manager.time.sleep") as mock_sleep,
+        patch("backend.copilot.executor.manager.time", fake_time),
     ):
         _dispatch_engine_switch_continuation("sess-1", _SWITCH)
 
     assert mock_schedule.await_count == 3
-    assert mock_sleep.call_count == 2
+    assert fake_time.sleep.call_count == 2
+
+
+def test_dispatch_sleep_patch_does_not_leak_to_other_threads():
+    """Regression test for #14371: patching the manager's ``time`` binding
+    must not mutate the shared stdlib ``time`` module, or an unrelated
+    ``time.sleep`` call from another thread gets captured by the mock and
+    loses its real delay.
+    """
+    fake_time = SimpleNamespace(sleep=MagicMock())
+    other_thread_done = threading.Event()
+
+    def call_real_sleep():
+        time.sleep(0.01)
+        other_thread_done.set()
+
+    with patch("backend.copilot.executor.manager.time", fake_time):
+        thread = threading.Thread(target=call_real_sleep)
+        thread.start()
+        thread.join(timeout=1)
+
+    assert other_thread_done.is_set()
+    fake_time.sleep.assert_not_called()
 
 
 def test_dispatch_gives_up_after_bounded_attempts_with_user_visible_marker():
@@ -98,7 +122,10 @@ def test_dispatch_gives_up_after_bounded_attempts_with_user_visible_marker():
             new_callable=AsyncMock,
             side_effect=RuntimeError("rmq down"),
         ) as mock_schedule,
-        patch("backend.copilot.executor.manager.time.sleep"),
+        patch(
+            "backend.copilot.executor.manager.time",
+            SimpleNamespace(sleep=MagicMock()),
+        ),
         patch(
             "backend.copilot.executor.manager._persist_switch_failure_marker"
         ) as mock_marker,
